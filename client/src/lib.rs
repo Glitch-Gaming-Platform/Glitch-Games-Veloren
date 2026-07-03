@@ -196,6 +196,14 @@ impl WorldData {
     pub fn min_chunk_alt(&self) -> f32 { self.map.2.x }
 
     pub fn max_chunk_alt(&self) -> f32 { self.map.2.y }
+
+    pub fn alt_at(&self, cpos: Vec2<i32>) -> Option<f32> {
+        let [a, b, _, _] = self.lod_alt.get(cpos)?.to_le_bytes();
+        Some(
+            (a as f32 * (1.0 / 256.0) + b as f32) * (1.0 / 256.0) * self.max_chunk_alt()
+                + self.min_chunk_alt(),
+        )
+    }
 }
 
 pub struct SiteMarker {
@@ -2175,6 +2183,27 @@ impl Client {
             });
 
         self.state.terrain().get_key_arc(chunk_pos).cloned()
+    }
+
+    /// Get spiral of chunks around the client with given radius, paired with
+    /// each chunk's coordinate on the chunk grid
+    pub fn chunks_around(&self, radius: i32) -> Option<Vec<(Arc<TerrainChunk>, Vec2<i32>)>> {
+        let chunk_pos = Vec2::from(self.position()?)
+            .map2(TerrainChunkSize::RECT_SIZE, |e: f32, sz| {
+                (e as u32).div_euclid(sz) as i32
+            });
+
+        Some(
+            Spiral2d::with_radius(radius)
+                .filter_map(|coord| {
+                    let pos = chunk_pos + coord;
+                    self.state
+                        .terrain()
+                        .get_key_arc(pos)
+                        .map(|chunk| (Arc::clone(chunk), pos))
+                })
+                .collect(),
+        )
     }
 
     pub fn current<C>(&self) -> Option<C>

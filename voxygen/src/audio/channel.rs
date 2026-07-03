@@ -30,13 +30,13 @@ use super::soundcache::{AnySoundData, AnySoundHandle};
 /// observe to prevent tracking distant entities. It approximates the distance
 /// at which the volume of the sfx emitted is too quiet to be meaningful for the
 /// player.
-pub const SFX_DIST_LIMIT: f32 = 200.0;
+pub const SFX_DIST_LIMIT: f32 = 256.0;
 pub const SFX_DIST_LIMIT_SQR: f32 = SFX_DIST_LIMIT * SFX_DIST_LIMIT;
 
 pub fn calculate_player_attenuation(player_pos: Vec3<f32>, emitter_pos: Vec3<f32>) -> f32 {
     1.0 - (player_pos.distance(emitter_pos) * (1.0 / SFX_DIST_LIMIT))
         .clamp(0.0, 1.0)
-        .sqrt()
+        .powf(1.0 / 2.0)
 }
 
 /// Each `MusicChannel` has a `MusicChannelTag` which help us determine when we
@@ -204,8 +204,7 @@ impl MusicChannel {
     pub fn get_length(&self) -> f32 { self.length }
 }
 
-/// AmbienceChannelTags are used for non-positional sfx. Currently the only use
-/// is for wind.
+/// AmbienceChannelTags are used for non-positional sfx.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize, EnumIter)]
 pub enum AmbienceChannelTag {
     Wind,
@@ -214,6 +213,8 @@ pub enum AmbienceChannelTag {
     Leaves,
     Cave,
     Thunder,
+    RiverLoud,
+    RiverQuiet,
 }
 
 /// An AmbienceChannel uses a non-positional audio sink designed to play sounds

@@ -16,6 +16,7 @@ temp
 todo.md
 todo.txt
 userdata
+Makefile
 
 ## Allow asset hud settings
 !assets/voxygen/i18n/*/hud/settings.ron
@@ -53,6 +54,9 @@ img-export/**/*.png
 .vscode/
 !/.vscode/launch.json
 *.code-workspace
+
+## Gram
+.gram/
 
 ## lldb
 .env
