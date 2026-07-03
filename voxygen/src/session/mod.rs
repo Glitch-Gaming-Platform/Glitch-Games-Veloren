@@ -608,7 +608,7 @@ impl PlayState for SessionState {
             let client = self.client.borrow();
             let player_entity = client.entity();
 
-            let dt = global_state.clock.get_stable_dt().as_secs_f32();
+            let dt = global_state.clock.real_dt().as_secs_f32();
 
             #[cfg(feature = "discord")]
             if global_state.discord.is_active()
@@ -696,7 +696,6 @@ impl PlayState for SessionState {
                 collect_target,
                 entity_target,
                 mine_target,
-                terrain_target,
                 &self.scene,
             ) {
                 Ok(input_map) => {
@@ -743,34 +742,14 @@ impl PlayState for SessionState {
                 }
             }
 
-            // Nearest block to consider with GameInput primary or secondary key.
-            let nearest_block_dist = find_shortest_distance(&[
-                mine_target
-                    .filter(|_| active_mine_tool.is_some())
-                    .map(|t| t.distance),
-                build_target.filter(|_| can_build).map(|t| t.distance),
-            ]);
-            // Nearest block to be highlighted in the scene (self.scene.set_select_pos).
-            let nearest_scene_dist = find_shortest_distance(&[
-                nearest_block_dist,
-                collect_target
-                    .filter(|_| active_mine_tool.is_none())
-                    .map(|t| t.distance),
-            ]);
-            // Set break_block_pos only if mining is closest.
-            self.inputs.break_block_pos = if let Some(mt) = mine_target
-                .filter(|mt| active_mine_tool.is_some() && nearest_scene_dist == Some(mt.distance))
-            {
+            // Set break_block_pos based on currently selected block
+            self.inputs.break_block_pos = if let Some(mt) = mine_target {
                 self.scene.set_select_pos(Some(mt.position_int()));
                 Some(mt.position)
-            } else if let Some(bt) =
-                build_target.filter(|bt| can_build && nearest_scene_dist == Some(bt.distance))
-            {
+            } else if let Some(bt) = build_target {
                 self.scene.set_select_pos(Some(bt.position_int()));
                 None
-            } else if let Some(ct) =
-                collect_target.filter(|ct| nearest_scene_dist == Some(ct.distance))
-            {
+            } else if let Some(ct) = collect_target {
                 self.scene.set_select_pos(Some(ct.position_int()));
                 None
             } else {
@@ -814,12 +793,9 @@ impl PlayState for SessionState {
                             GameInput::Primary => {
                                 self.walking_speed = false;
                                 let mut client = self.client.borrow_mut();
-                                // Mine and build targets can be the same block. make building
-                                // take precedence.
-                                // Order of precedence: build, then mining, then attack.
-                                if let Some(build_target) = build_target.filter(|bt| {
-                                    state && can_build && nearest_block_dist == Some(bt.distance)
-                                }) {
+                                // Building inputs take precedence... but only if there's an active
+                                // building target.
+                                if let Some(build_target) = build_target.filter(|_| state) {
                                     client.remove_block(build_target.position_int());
                                 } else {
                                     client.handle_input(
@@ -833,9 +809,7 @@ impl PlayState for SessionState {
                             GameInput::Secondary => {
                                 self.walking_speed = false;
                                 let mut client = self.client.borrow_mut();
-                                if let Some(build_target) = build_target.filter(|bt| {
-                                    state && can_build && nearest_block_dist == Some(bt.distance)
-                                }) {
+                                if let Some(build_target) = build_target.filter(|_| state) {
                                     let selected_pos = build_target.kind.0;
                                     client.place_block(
                                         selected_pos.map(|p| p.floor() as i32),
@@ -899,6 +873,7 @@ impl PlayState for SessionState {
                                 self.stop_auto_walk();
                                 if state && self.client.borrow_mut().respawn() {
                                     global_state.profile.tutorial.event_respawn();
+                                    self.scene.screen_fade = -0.5;
                                 }
                             },
                             GameInput::Jump => {
@@ -1443,9 +1418,10 @@ impl PlayState for SessionState {
             let (axis_right, axis_up) = (input_vec[0], input_vec[1]);
 
             if let Some(ref mut timer) = self.key_state.give_up {
+                use crate::key_state::GIVE_UP_HOLD_TIME;
                 *timer += dt;
 
-                if *timer > crate::key_state::GIVE_UP_HOLD_TIME {
+                if *timer > GIVE_UP_HOLD_TIME {
                     self.client.borrow_mut().give_up();
                 }
             }
@@ -1646,11 +1622,7 @@ impl PlayState for SessionState {
             // Runs if either in a multiplayer server or the singleplayer server is unpaused
             if !global_state.paused() {
                 // Perform an in-game tick.
-                match self.tick(
-                    global_state.clock.get_stable_dt(),
-                    global_state,
-                    &mut outcomes,
-                ) {
+                match self.tick(global_state.clock.game_dt(), global_state, &mut outcomes) {
                     Ok(TickAction::Continue) => {}, // Do nothing
                     Ok(TickAction::Disconnect) => return PlayStateResult::Pop, // Go to main menu
                     Err(Error::ClientError(error)) => {
@@ -1721,6 +1693,7 @@ impl PlayState for SessionState {
                 DebugInfo {
                     tps: global_state.clock.stats().average_tps,
                     frame_time: global_state.clock.stats().average_busy_dt,
+                    frame_variance: global_state.clock.stats().average_variance,
                     ping_ms: self.client.borrow().get_ping_ms_rolling_avg(),
                     coordinates,
                     velocity,
@@ -1752,7 +1725,7 @@ impl PlayState for SessionState {
                 global_state,
                 &debug_info,
                 self.scene.camera(),
-                global_state.clock.get_stable_dt(),
+                global_state.clock.real_dt(),
                 HudInfo {
                     is_aiming,
                     active_mine_tool,
@@ -2183,26 +2156,6 @@ impl PlayState for SessionState {
                         self.client.borrow_mut().salvage_item(slot, salvage_pos);
                     },
                     HudEvent::RepairItem { item, sprite_pos } => {
-                        let slots = {
-                            let client = self.client.borrow();
-                            let slots = (|| {
-                                if let Some(inventory) = client.inventories().get(client.entity()) {
-                                    let item = match item {
-                                        Slot::Equip(slot) => inventory.equipped(slot),
-                                        Slot::Inventory(slot) => inventory.get(slot),
-                                        Slot::Overflow(_) => None,
-                                    }?;
-                                    let repair_recipe =
-                                        client.repair_recipe_book().repair_recipe(item)?;
-                                    repair_recipe
-                                        .inventory_contains_ingredients(item, inventory)
-                                        .ok()
-                                } else {
-                                    None
-                                }
-                            })();
-                            slots.unwrap_or_default()
-                        };
                         if !has_repaired {
                             let sfx_trigger_item = sfx_triggers
                                 .0
@@ -2210,9 +2163,7 @@ impl PlayState for SessionState {
                             global_state.audio.emit_ui_sfx(sfx_trigger_item, None, None);
                             has_repaired = true
                         };
-                        self.client
-                            .borrow_mut()
-                            .repair_item(item, slots, sprite_pos);
+                        self.client.borrow_mut().repair_item(item, sprite_pos);
                     },
                     HudEvent::InviteMember(uid) => {
                         self.client.borrow_mut().send_invite(uid, InviteKind::Group);
@@ -2421,12 +2372,6 @@ impl PlayState for SessionState {
     }
 
     fn egui_enabled(&self) -> bool { true }
-}
-
-fn find_shortest_distance(arr: &[Option<f32>]) -> Option<f32> {
-    arr.iter()
-        .filter_map(|x| *x)
-        .min_by(|d1, d2| OrderedFloat(*d1).cmp(&OrderedFloat(*d2)))
 }
 
 // TODO: Can probably be exported in some way for AI, somehow

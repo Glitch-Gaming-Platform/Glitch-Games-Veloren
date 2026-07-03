@@ -1,5 +1,8 @@
 use super::{
-    super::{AaMode, GlobalsLayouts, Mesh, TerrainLayout, Vertex as VertexTrait, buffer::Buffer},
+    super::{
+        ExperimentalShader, GlobalsLayouts, Mesh, PipelineModes, TerrainLayout,
+        Vertex as VertexTrait, buffer::Buffer,
+    },
     GlobalModel, Texture, lod_terrain,
 };
 use bytemuck::{Pod, Zeroable};
@@ -38,7 +41,6 @@ pub struct Vertex {
 
 impl Vertex {
     // NOTE: Limit to 16 (x) × 16 (y) × 32 (z).
-    #[expect(clippy::collapsible_else_if)]
     pub fn new(atlas_pos: Vec2<u16>, pos: Vec3<f32>, norm: Vec3<f32>) -> Self {
         const VERT_EXTRA_NEG_XY: i32 = 128;
         const VERT_EXTRA_NEG_Z: i32 = 128; // NOTE: change if number of bits changes below, also we might not need this if meshing always produces positives values for sprites (I have no idea)
@@ -264,8 +266,8 @@ impl SpritePipeline {
         global_layout: &GlobalsLayouts,
         layout: &SpriteLayout,
         terrain_layout: &TerrainLayout,
-        aa_mode: AaMode,
         format: wgpu::TextureFormat,
+        pipeline_modes: &PipelineModes,
     ) -> Self {
         common_base::span!(_guard, "SpritePipeline::new");
         let render_pipeline_layout =
@@ -281,7 +283,7 @@ impl SpritePipeline {
                 ],
             });
 
-        let samples = aa_mode.samples();
+        let samples = pipeline_modes.aa.samples();
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Sprite pipeline"),
@@ -298,7 +300,14 @@ impl SpritePipeline {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
                 unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
+                polygon_mode: if pipeline_modes
+                    .experimental_shaders
+                    .contains(&ExperimentalShader::Wireframe)
+                {
+                    wgpu::PolygonMode::Line
+                } else {
+                    wgpu::PolygonMode::Fill
+                },
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {

@@ -37,20 +37,16 @@ hud-settings-camera_clamp_angle = Вугал вертыкальнага зама
 hud-settings-invert_scroll_zoom = Інвертаваць пракрутку
 hud-settings-invert_mouse_y_axis = Інвертаваць вось Y мышы
 hud-settings-invert_controller_y_axis = Інвертаваць вось Y геймпада
-hud-settings-enable_mouse_smoothing =
-    Згладжванне руху
-    камеры
+hud-settings-enable_mouse_smoothing = Згладжванне руху камеры
 hud-settings-free_look_behavior = Паводзіны вольнага агляду
 hud-settings-auto_walk_behavior = Паводзіны аўтаруху
 hud-settings-camera_clamp_behavior = Паводзіны замацаванай камеры
 hud-settings-player_physics_behavior = Фізіка гульца (эксперыментальнае)
-hud-settings-stop_auto_walk_on_input =
-    Скасаваць аўтарух
-    пры ўводзе
+hud-settings-stop_auto_walk_on_input = Спыніць аўта хаду пры руху
 hud-settings-auto_camera = Аўтакамера
 hud-settings-reset_gameplay = Па змаўчанню
-hud-settings-view_distance = ДБ (далёкасць бачн.)
-hud-settings-sprites_view_distance = ДБ спрайтаў
+hud-settings-view_distance = Далёкасць Бачання
+hud-settings-sprites_view_distance = Далёкасць Бачання Спрайтаў
 hud-settings-maximum_fps = Максімальны FPS
 hud-settings-background_fps = Фонавы FPS
 hud-settings-present_mode = Рэжым прэзэнтацыі (Vulkan Swap Chain)
@@ -163,3 +159,27 @@ hud-settings-flashing_lights_info = Прыбірае ўсе віды мігце�
 hud-settings-third_party_integrations = Іншыя інтэграцыі
 hud-settings-present_mode-vsync_uncapped = Неабмежаваны Vsync
 hud-settings-language_send_to_server = Адправіць наладжаную мову на серверы (для лакалізацыі правілаў і «паведамленняў дня»)
+hud-settings-draggable_windows = Перацягвальныя Вокны
+hud-settings-use_health_prefixes = Выкарыстоўваць лічбы на шкале здароўя
+hud-settings-minimap = Міні Мапа
+hud-settings-minimap_scale = Маштаб
+hud-settings-colored_player_marker = Каляровы Маркер Гульца
+hud-settings-lock_chat = Замацаваць Памер/Пазіцыю Чата
+hud-settings-show_chat_timestamp = Паказваць Час ў Чаце
+hud-settings-rain = Дождж
+hud-settings-rain_ambience = Дажджовая Атмасфера
+hud-settings-sfx_channels = Прапускная Здольнасць Канала SFX
+hud-settings-sfx_channels_low = Нізкая
+hud-settings-sfx_channels_med = Сярэдняя
+hud-settings-sfx_channels_high = Высокая
+hud-settings-keybind-helper =
+    ЛКМ каб прызначыць
+    ПКМ каб адхіліць
+hud-settings-show_all_recipes = Паказаць Усе Рэцэпты
+hud-settings-gamepad = Геймпад
+hud-settings-keyboard = Клавіятура
+hud-settings-game_buttons = Кнопкі Гульні
+hud-settings-game_layers = Гульнявыя Пласты
+hud-settings-menu_buttons = Кнопкі Меню
+hud-settings-row_background_opacity = Празрыстасць Фону Радка
+hud-settings-indoor_ambience = Вызначэнне атмасферы ў памяшканні

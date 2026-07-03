@@ -134,7 +134,7 @@ docker run --rm -it \
   -p 14005:14005/tcp \
   -e GLITCH_API_BASE_URL="https://api.glitch.fun/api" \
   -e GLITCH_TITLE_ID="355282b1-f6a8-4183-9105-044993ba6066" \
-  -e GLITCH_TITLE_TOKEN="7f478ff5-4871-4a2f-8944-1b5f1b201bd0.4wk3eFa6J0dmFKj3iCAfWsdctM4a3tma" \
+  -e GLITCH_TITLE_TOKEN="<title token>" \
   -e GLITCH_SHARED_PASSWORD="CHANGE_ME_SHARED_PASSWORD" \
   -e VELOREN_MAX_PLAYERS="32" \
   -v veloren-glitch-data:/opt/userdata \
@@ -221,7 +221,7 @@ docker run --rm -it \
   -p 14005:14005/tcp \
   -e GLITCH_API_BASE_URL="https://api.glitch.fun/api" \
   -e GLITCH_TITLE_ID="355282b1-f6a8-4183-9105-044993ba6066" \
-  -e GLITCH_TITLE_TOKEN="7f478ff5-4871-4a2f-8944-1b5f1b201bd0.4wk3eFa6J0dmFKj3iCAfWsdctM4a3tma" \
+  -e GLITCH_TITLE_TOKEN="<title token>" \
   -e GLITCH_INSTALL_ID="5663bdf5-c4e2-48a3-b06d-bc6a57befe63" \
   -e GLITCH_SHARED_PASSWORD="CHANGE_ME_SHARED_PASSWORD" \
   -e VELOREN_AUTH_MODE="official" \
@@ -776,7 +776,7 @@ docker run --rm -it \
   -p 14005:14005/tcp \
   -e GLITCH_API_BASE_URL="https://api.glitch.fun/api" \
   -e GLITCH_TITLE_ID="355282b1-f6a8-4183-9105-044993ba6066" \
-  -e GLITCH_TITLE_TOKEN="7f478ff5-4871-4a2f-8944-1b5f1b201bd0.4wk3eFa6J0dmFKj3iCAfWsdctM4a3tma" \
+  -e GLITCH_TITLE_TOKEN="<title token>" \
   -e GLITCH_INSTALL_ID="5663bdf5-c4e2-48a3-b06d-bc6a57befe63" \
   -e GLITCH_SHARED_PASSWORD="CHANGE_ME_SHARED_PASSWORD" \
   -e VELOREN_AUTH_MODE="official" \

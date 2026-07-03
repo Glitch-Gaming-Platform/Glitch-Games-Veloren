@@ -99,7 +99,7 @@ use common_net::{
 };
 use common_state::{AreasContainer, BlockDiff, BuildArea, State};
 use common_systems::add_local_systems;
-use metrics::{EcsSystemMetrics, PhysicsMetrics, TickMetrics};
+use metrics::{EcsSystemMetrics, GameplayMetrics, PhysicsMetrics, TickMetrics};
 use network::{ListenAddr, Network, Pid};
 use persistence::{
     character_loader::{CharacterLoader, CharacterUpdaterMessage},
@@ -291,6 +291,7 @@ impl Server {
         let tick_metrics = TickMetrics::new(&registry).unwrap();
         let physics_metrics = PhysicsMetrics::new(&registry).unwrap();
         let server_event_metrics = metrics::ServerEventMetrics::new(&registry).unwrap();
+        let gameplay_metrics = GameplayMetrics::new(&registry).unwrap();
         let query_server_metrics = metrics::QueryServerMetrics::new(&registry).unwrap();
 
         let battlemode_buffer = BattleModeBuffer::default();
@@ -398,6 +399,7 @@ impl Server {
         state.ecs_mut().insert(tick_metrics);
         state.ecs_mut().insert(physics_metrics);
         state.ecs_mut().insert(server_event_metrics);
+        state.ecs_mut().insert(gameplay_metrics);
         state.ecs_mut().insert(query_server_metrics);
         if settings.experimental_terrain_persistence {
             #[cfg(feature = "persistent_world")]
@@ -790,6 +792,24 @@ impl Server {
             .calendar_mode
             .calendar_now();
         *self.state.ecs_mut().write_resource::<Calendar>() = new_calendar;
+
+        #[cfg(feature = "hot-site")]
+        if let Ok(lib) = world::LIB.lock()
+            && let Some(lib) = &*lib
+        {
+            static LAST_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let last_count = LAST_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+
+            let new_count = lib.reload_count();
+
+            if new_count > last_count {
+                LAST_COUNT.store(new_count, std::sync::atomic::Ordering::Relaxed);
+
+                let count = cmd::reload_chunks_inner(self, Vec3::zero(), None, true);
+
+                tracing::info!("Reloaded {count} chunks");
+            }
+        }
 
         // This tick function is the centre of the Veloren universe. Most server-side
         // things are managed from here, and as such it's important that it

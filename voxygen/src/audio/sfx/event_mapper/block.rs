@@ -3,7 +3,7 @@
 use crate::{
     AudioFrontend,
     audio::sfx::{SFX_DIST_LIMIT_SQR, SfxEvent, SfxTriggerItem, SfxTriggers},
-    scene::{Camera, Terrain, terrain::BlocksOfInterest},
+    scene::{Camera, FigureMgr, Terrain, terrain::BlocksOfInterest},
 };
 
 use super::EventMapper;
@@ -47,6 +47,7 @@ impl EventMapper for BlockEventMapper {
         triggers: &SfxTriggers,
         terrain: &Terrain<TerrainChunk>,
         client: &Client,
+        _figure_mgr: &FigureMgr,
     ) {
         let mut rng = ChaCha8Rng::from_seed(rand::rng().random());
 
@@ -95,13 +96,6 @@ impl EventMapper for BlockEventMapper {
                     range: 1,
                     sfx: SfxEvent::RunningWaterSlow,
                     volume: 1.0,
-                    cond: |_| true,
-                },
-                BlockSounds {
-                    blocks: |boi| &boi.fast_river,
-                    range: 1,
-                    sfx: SfxEvent::RunningWaterFast,
-                    volume: 1.25,
                     cond: |_| true,
                 },
                 BlockSounds {
@@ -194,7 +188,6 @@ impl EventMapper for BlockEventMapper {
 
                         // Replace all RunningWater blocks with just one random one per tick
                         let blocks = if sounds.sfx == SfxEvent::RunningWaterSlow
-                            || sounds.sfx == SfxEvent::RunningWaterFast
                             || sounds.sfx == SfxEvent::Lavapool
                         {
                             blocks
@@ -214,7 +207,7 @@ impl EventMapper for BlockEventMapper {
                                 && rng.random_bool(0.9995))
                                 || (sounds.sfx == SfxEvent::Frog && rng.random_bool(0.75))
                                 || (sounds.sfx == SfxEvent::RunningWaterSlow
-                                    && rng.random_bool(0.5))
+                                    && rng.random_bool(0.85))
                                 || (sounds.sfx == SfxEvent::Lavapool && rng.random_bool(0.99))
                             {
                                 continue;

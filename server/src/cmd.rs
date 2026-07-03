@@ -2632,7 +2632,7 @@ fn handle_clear_persisted_terrain(
         }
 
         drop(terrain_persistence2);
-        reload_chunks_inner(server, pos.0, Some(radius));
+        reload_chunks_inner(server, pos.0, Some(radius), false);
 
         Ok(())
     } else {
@@ -4736,7 +4736,12 @@ fn parse_skill_tree(skill_tree: &str) -> CmdResult<comp::skillset::SkillGroupKin
     }
 }
 
-fn reload_chunks_inner(server: &mut Server, pos: Vec3<f32>, radius: Option<i32>) -> usize {
+pub fn reload_chunks_inner(
+    server: &mut Server,
+    pos: Vec3<f32>,
+    radius: Option<i32>,
+    only_sites: bool,
+) -> usize {
     let mut removed = 0;
 
     if let Some(radius) = radius {
@@ -4744,6 +4749,16 @@ fn reload_chunks_inner(server: &mut Server, pos: Vec3<f32>, radius: Option<i32>)
 
         for key_offset in Spiral2d::with_radius(radius) {
             let chunk_key = chunk_key + key_offset;
+            #[cfg(feature = "worldgen")]
+            if only_sites
+                && server
+                    .world
+                    .sim()
+                    .get(chunk_key)
+                    .is_none_or(|c| c.sites.is_empty())
+            {
+                continue;
+            }
 
             #[cfg(feature = "persistent_world")]
             server
@@ -4755,6 +4770,35 @@ fn reload_chunks_inner(server: &mut Server, pos: Vec3<f32>, radius: Option<i32>)
                 removed += 1;
             }
         }
+    } else if cfg!(feature = "worldgen") && only_sites {
+        let removed_chunks = &mut server
+            .state
+            .ecs()
+            .write_resource::<common_state::TerrainChanges>()
+            .removed_chunks;
+        server.state.terrain_mut().retain(|chunk_key| {
+            #[cfg(feature = "worldgen")]
+            if server
+                .world
+                .sim()
+                .get(chunk_key)
+                .is_none_or(|c| c.sites.is_empty())
+            {
+                return true;
+            }
+
+            #[cfg(feature = "persistent_world")]
+            server
+                .state
+                .ecs()
+                .try_fetch_mut::<crate::terrain_persistence::TerrainPersistence>()
+                .map(|mut terrain_persistence| terrain_persistence.unload_chunk(chunk_key));
+
+            removed_chunks.insert(chunk_key);
+            removed += 1;
+
+            false
+        });
     } else {
         #[cfg(feature = "persistent_world")]
         server
@@ -4775,10 +4819,15 @@ fn handle_reload_chunks(
     args: Vec<String>,
     _action: &ServerChatCommand,
 ) -> CmdResult<()> {
-    let radius = parse_cmd_args!(args, i32);
+    let (radius, only_sites) = parse_cmd_args!(args, i32, bool);
 
     let pos = position(server, target, "target")?.0;
-    let removed = reload_chunks_inner(server, pos, radius.map(|radius| radius.clamp(0, 64)));
+    let removed = reload_chunks_inner(
+        server,
+        pos,
+        radius.map(|radius| radius.clamp(0, 64)),
+        only_sites.unwrap_or(false),
+    );
 
     server.notify_client(
         client,
@@ -5258,6 +5307,7 @@ fn handle_aura(
         aura_duration.map(|duration| Secs(duration as f64)),
         aura_target,
         time,
+        None,
     );
 
     if new_entity {
@@ -6536,21 +6586,11 @@ fn handle_spot(
     let target_chunk = target_pos.0.xy().wpos_to_cpos().as_();
 
     let world = server.state.ecs().read_resource::<Arc<world::World>>();
-    let spot_chunk = Spiral2d::new()
-        .map(|o| target_chunk + o)
-        .filter(|chunk| world.sim().get(*chunk).is_some())
-        .take(world.sim().map_size_lg().chunks_len())
-        .find(|chunk| {
-            world.sim().get(*chunk).is_some_and(|chunk| {
-                if let Some(spot) = &chunk.spot {
-                    match spot {
-                        Spot::RonFile(spot) => spot.base_structures == target_spot,
-                        spot_kind => Some(spot_kind) == maybe_spot_kind,
-                    }
-                } else {
-                    false
-                }
-            })
+    let spot_chunk = world
+        .sim()
+        .get_nearest_spot(target_chunk, |spot| match spot {
+            Spot::RonFile(spot) => spot.base_structures == target_spot,
+            spot_kind => Some(spot_kind) == maybe_spot_kind,
         });
 
     if let Some(spot_chunk) = spot_chunk {

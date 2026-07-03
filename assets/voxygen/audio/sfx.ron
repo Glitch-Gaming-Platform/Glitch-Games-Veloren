@@ -98,36 +98,6 @@
         threshold: 7.0,
         subtitle: "subtitle-running_water",
     ),
-    RunningWaterFast: (
-        files: [
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-001",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-002",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-003",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-004",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-005",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-006",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-007",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-008",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-009",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-010",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-011",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-012",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-013",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-014",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-015",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-016",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-017",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-018",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-019",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-020",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-021",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-022",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-023",
-            "voxygen.audio.sfx.ambient.river_sounds.fast_water-024",
-        ],
-        threshold: 5.0,
-        subtitle: "subtitle-running_water",
-    ),
     Lavapool: (
         files: [
             "voxygen.audio.sfx.ambient.river_sounds.running_water-003",
@@ -598,6 +568,54 @@
     //    ],
     //    threshold: 0.8,
     //),
+    Attack(DashMelee(Charge), Staff): (
+    files: [
+        "voxygen.audio.sfx.abilities.fire_dash",
+    ],
+    threshold: 0.5,
+    ),
+    Attack(BasicAura, Staff): (
+        files: [
+            "voxygen.audio.sfx.abilities.flame_cloak",
+        ],
+        threshold: 10.0,
+    ),
+    NapalmShot: (
+        files: [
+            "voxygen.audio.sfx.abilities.napalm_strike",
+        ],
+        threshold: 0.2,
+    ),
+    NapalmImpact: (
+        files: [
+            "voxygen.audio.sfx.abilities.napalm_pool",
+        ],
+        threshold: 0.2,
+    ),
+    FireBreathShot: (
+        files: [
+            "voxygen.audio.sfx.abilities.flame_thrower",
+        ],
+        threshold: 0.2,
+    ),
+    FireBreathCharge: (
+        files: [
+            "voxygen.audio.sfx.abilities.fire_breath",
+        ],
+        threshold: 10.0,
+    ),
+    PyroclasmCharge: (
+        files: [
+                "voxygen.audio.sfx.abilities.pyroclasm_charge",
+            ],
+        threshold: 10.0,
+    ),
+    PyroclasmBolt: (
+        files: [
+                "voxygen.audio.sfx.abilities.pyroclasm_bolt",
+            ],
+        threshold: 0.1,
+    ),
     Inventory(CollectedTool(Staff)): (
         files: [
             "voxygen.audio.sfx.inventory.pickup_staff",

@@ -9,6 +9,7 @@ use common::{
         aura::EnteredAuras,
         melee::MultiTarget,
     },
+    consts::MAX_PICKUP_RANGE,
     event::{self, EmitExt, EventBus},
     event_emitters,
     outcome::Outcome,
@@ -101,12 +102,13 @@ impl<'a> System<'a> for Sys {
         )
             .join()
         {
-            if melee_attack.applied {
+            if melee_attack.applied && !melee_attack.sustained {
                 continue;
             }
             emitters.emit(event::SoundEvent {
                 sound: Sound::new(SoundKind::Melee, pos.0, 2.0, read_data.time.0),
             });
+
             melee_attack.applied = true;
 
             // Scales
@@ -122,8 +124,10 @@ impl<'a> System<'a> for Sys {
             // Mine blocks broken by the attack
             if let Some((block_pos, tool)) = melee_attack.break_block {
                 // Check distance to block
+                // TODO: Should this use melee attack range instead? Make sure voxygen supports
+                // it!
                 if eye_pos.distance_squared(block_pos.map(|e| e as f32 + 0.5))
-                    < (rad + scale * melee_attack.range).powi(2)
+                    < MAX_PICKUP_RANGE.powi(2)
                 {
                     emitters.emit(event::MineBlockEvent {
                         entity: attacker,
@@ -144,10 +148,17 @@ impl<'a> System<'a> for Sys {
                 .join()
                 .sorted_by_key(|(_, pos_b, _, _, _)| pos_b.0.distance_squared(pos.0) as u32)
             {
-                // Unless the melee attack can hit multiple targets, stop the attack if it has
-                // already hit 1 target
-                if melee_attack.multi_target.is_none() && melee_attack.hit_count > 0 {
+                // Unless the melee attack can hit multiple targets, stop after first hit
+                if melee_attack.multi_target.is_none()
+                    && !melee_attack.sustained
+                    && !melee_attack.hit_entities.is_empty()
+                {
                     break;
+                }
+
+                // Skip already-hit entities to prevent duplicate hits
+                if melee_attack.hit_entities.contains(uid_b) {
+                    continue;
                 }
 
                 let look_dir = *ori.look_dir();
@@ -294,7 +305,7 @@ impl<'a> System<'a> for Sys {
 
                     let strength =
                         if let Some(MultiTarget::Scaling(scaling)) = melee_attack.multi_target {
-                            1.0 + melee_attack.hit_count as f32 * scaling
+                            1.0 + melee_attack.hit_entities.len() as f32 * scaling
                         } else {
                             1.0
                         };
@@ -317,7 +328,7 @@ impl<'a> System<'a> for Sys {
                     }
 
                     if is_applied {
-                        melee_attack.hit_count += melee_attack.simultaneous_hits;
+                        melee_attack.hit_entities.push(*uid_b);
                     }
                 }
             }

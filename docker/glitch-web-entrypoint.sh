@@ -49,14 +49,38 @@ export GLITCH_AUDIO_CHANNELS="${GLITCH_AUDIO_CHANNELS:-2}"
 # GLITCH_REVERT_NOVNC_MOUSE_OPTIMAL_V1: disable fake noVNC camera pan; keep splash/save.
 set -euo pipefail
 # GLITCH_STREAM_CAMERA_SAVE_SPLASH_V3:
-# Browser-streamed mouse tuning. Desktop Veloren is untouched; these only apply
-# when GLITCH_VNC_ABSOLUTE_MOUSE=1 inside noVNC.
-export GLITCH_VNC_ABSOLUTE_MOUSE="${GLITCH_VNC_ABSOLUTE_MOUSE:-1}"
+# Browser-streamed mouse tuning. Desktop Veloren is untouched.
+#
+# Camera look uses a SINGLE input path: the browser captures pointer-lock
+# relative movement and the X11 bridge injects it as native relative motion
+# (DeviceEvent::MouseMotion). GLITCH_VNC_ABSOLUTE_MOUSE is OFF on purpose --
+# enabling it makes the game ALSO translate noVNC absolute cursor moves into
+# camera pan, double-counting every movement and pinning the camera looking up.
+export GLITCH_VNC_ABSOLUTE_MOUSE="${GLITCH_VNC_ABSOLUTE_MOUSE:-0}"
 export GLITCH_VNC_ABSOLUTE_MOUSE_MAX_DELTA="${GLITCH_VNC_ABSOLUTE_MOUSE_MAX_DELTA:-48}"
 export GLITCH_VNC_ABSOLUTE_MOUSE_MAX_Y_DELTA="${GLITCH_VNC_ABSOLUTE_MOUSE_MAX_Y_DELTA:-28}"
 export GLITCH_VNC_ABSOLUTE_MOUSE_DEADZONE="${GLITCH_VNC_ABSOLUTE_MOUSE_DEADZONE:-1.8}"
-export GLITCH_VNC_ABSOLUTE_MOUSE_X_SCALE="${GLITCH_VNC_ABSOLUTE_MOUSE_X_SCALE:-0.12}"
-export GLITCH_VNC_ABSOLUTE_MOUSE_Y_SCALE="${GLITCH_VNC_ABSOLUTE_MOUSE_Y_SCALE:-0.035}"
+export GLITCH_VNC_ABSOLUTE_MOUSE_X_SCALE="${GLITCH_VNC_ABSOLUTE_MOUSE_X_SCALE:-0.015}"
+export GLITCH_VNC_ABSOLUTE_MOUSE_Y_SCALE="${GLITCH_VNC_ABSOLUTE_MOUSE_Y_SCALE:-0.006}"
+export GLITCH_NOVNC_POINTER_LOCK="${GLITCH_NOVNC_POINTER_LOCK:-1}"
+# Scale down raw browser pointer-lock deltas so look speed feels natural in the
+# stream (1.0 was far too fast). Tune up/down here if needed.
+export GLITCH_NOVNC_POINTER_LOCK_X_SCALE="${GLITCH_NOVNC_POINTER_LOCK_X_SCALE:-0.5}"
+export GLITCH_NOVNC_POINTER_LOCK_Y_SCALE="${GLITCH_NOVNC_POINTER_LOCK_Y_SCALE:-0.4}"
+export GLITCH_NOVNC_POINTER_LOCK_MAX_DELTA="${GLITCH_NOVNC_POINTER_LOCK_MAX_DELTA:-48}"
+export GLITCH_X11_MOUSE_BRIDGE="${GLITCH_X11_MOUSE_BRIDGE:-1}"
+export GLITCH_X11_MOUSE_BRIDGE_PORT="${GLITCH_X11_MOUSE_BRIDGE_PORT:-6090}"
+export GLITCH_X11_MOUSE_MAX_DELTA="${GLITCH_X11_MOUSE_MAX_DELTA:-80}"
+# Shared path where Voxygen publishes cursor grab state and the mouse bridge
+# reads it. The browser polls /glitch-cursor-state so pointer capture only
+# engages in-world and menus stay clickable with a visible cursor.
+export GLITCH_CURSOR_STATE_FILE="${GLITCH_CURSOR_STATE_FILE:-/tmp/glitch-cursor-state}"
+
+# Glitch Aegis payout/retention handshake: POST /installs every 60s while playable.
+export GLITCH_INSTALL_HEARTBEAT_ENABLED="${GLITCH_INSTALL_HEARTBEAT_ENABLED:-1}"
+export GLITCH_INSTALL_HEARTBEAT_INTERVAL_SECONDS="${GLITCH_INSTALL_HEARTBEAT_INTERVAL_SECONDS:-60}"
+export GLITCH_HEARTBEAT_PLATFORM="${GLITCH_HEARTBEAT_PLATFORM:-web}"
+export GLITCH_GAME_VERSION="${GLITCH_GAME_VERSION:-veloren-glitch}"
 export VELOREN_CLIENT_START_DELAY_SECONDS="${VELOREN_CLIENT_START_DELAY_SECONDS:-8}"
 
 # Glitch Cloud Save. Slot 0 is the whole Veloren streamed-native userdata archive.
@@ -746,6 +770,122 @@ glitch_shutdown_save() {
   glitch_upload_cloud_save || true
 }
 
+# GLITCH_INSTALL_HEARTBEAT_V1: keep the payout/retention handshake alive.
+# The Glitch Aegis contract requires POSTing to /titles/<id>/installs every
+# ~60s while the game is actually playable. The server records one heartbeat at
+# login, but recurring pings must come from the launcher (this container).
+glitch_install_heartbeat_url() {
+  printf "%s/titles/%s/installs" "$(glitch_api_base)" "${GLITCH_TITLE_ID}"
+}
+
+glitch_send_install_heartbeat() {
+  if [ "${GLITCH_INSTALL_HEARTBEAT_ENABLED:-1}" != "1" ]; then return 0; fi
+
+  local install_id
+  install_id="${GLITCH_USER_INSTALL_ID:-${GLITCH_INSTALL_ID:-}}"
+  if [ -z "${GLITCH_TITLE_ID:-}" ] || [ -z "${GLITCH_TITLE_TOKEN:-}" ] || [ -z "$install_id" ]; then
+    return 0
+  fi
+
+  local url body status
+  url="$(glitch_install_heartbeat_url)"
+  body="$(python3 - "$install_id" "${GLITCH_SESSION_ID:-$install_id}" "${GLITCH_HEARTBEAT_PLATFORM:-web}" "${GLITCH_GAME_VERSION:-veloren-glitch}" <<'PY_HB'
+import json, sys
+install_id, session_id, platform, game_version = sys.argv[1:5]
+print(json.dumps({
+    "user_install_id": install_id,
+    "session_id": session_id,
+    "platform": platform,
+    "device_type": "desktop",
+    "operating_system": "browser",
+    "game_version": game_version,
+    "referral_source": "glitch",
+}))
+PY_HB
+)"
+
+  status="$(curl -s -o /dev/null -w '%{http_code}' \
+    -X POST \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${GLITCH_TITLE_TOKEN}" \
+    --data "$body" \
+    "$url" 2>/dev/null || echo "000")"
+
+  case "$status" in
+    200|201) : ;;
+    401|403)
+      log "Glitch heartbeat rejected (HTTP ${status}); license/token issue. Pausing heartbeat."
+      return 1
+      ;;
+    *)
+      log "Glitch heartbeat HTTP ${status}; will retry next interval."
+      ;;
+  esac
+  return 0
+}
+
+glitch_install_heartbeat_loop() {
+  # Send one immediately so payout tracking starts as soon as the game is up,
+  # then every GLITCH_INSTALL_HEARTBEAT_INTERVAL_SECONDS (default 60).
+  glitch_send_install_heartbeat || true
+  while true; do
+    sleep "${GLITCH_INSTALL_HEARTBEAT_INTERVAL_SECONDS:-60}" || true
+    if ! glitch_send_install_heartbeat; then
+      # 401/403 means the license/token is invalid; stop hammering the API.
+      break
+    fi
+  done
+}
+
+start_glitch_install_heartbeat_loop() {
+  if [ "${GLITCH_INSTALL_HEARTBEAT_ENABLED:-1}" != "1" ]; then
+    log "Glitch install heartbeat disabled by GLITCH_INSTALL_HEARTBEAT_ENABLED=${GLITCH_INSTALL_HEARTBEAT_ENABLED:-}"
+    return 0
+  fi
+  if [ -z "${GLITCH_TITLE_ID:-}" ] || [ -z "${GLITCH_TITLE_TOKEN:-}" ] || [ -z "${GLITCH_USER_INSTALL_ID:-${GLITCH_INSTALL_ID:-}}" ]; then
+    log "Glitch install heartbeat skipped: missing title id/token/install id."
+    return 0
+  fi
+  (glitch_install_heartbeat_loop) &
+  GLITCH_INSTALL_HEARTBEAT_LOOP_PID="$!"
+  log "Started Glitch install heartbeat every ${GLITCH_INSTALL_HEARTBEAT_INTERVAL_SECONDS:-60}s for install ${GLITCH_USER_INSTALL_ID:-$GLITCH_INSTALL_ID}."
+}
+
+start_glitch_x11_mouse_bridge() {
+  if [ "${GLITCH_X11_MOUSE_BRIDGE:-1}" != "1" ]; then
+    log "Mouse: X11 relative bridge disabled by GLITCH_X11_MOUSE_BRIDGE=${GLITCH_X11_MOUSE_BRIDGE:-}"
+    return 0
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    log "Mouse: python3 missing; X11 relative bridge disabled."
+    return 0
+  fi
+
+  local bridge_script="${GLITCH_X11_MOUSE_BRIDGE_SCRIPT:-/usr/local/share/veloren-glitch/x11_mouse_bridge.py}"
+  if [ ! -f "$bridge_script" ]; then
+    log "Mouse: X11 bridge script not found at ${bridge_script}; bridge disabled."
+    return 0
+  fi
+
+  pkill -f '[g]litch.*/x11_mouse_bridge.py' 2>/dev/null || true
+  GLITCH_X11_MOUSE_BRIDGE_PORT="${GLITCH_X11_MOUSE_BRIDGE_PORT:-6090}" \
+    GLITCH_X11_MOUSE_MAX_DELTA="${GLITCH_X11_MOUSE_MAX_DELTA:-80}" \
+    python3 "$bridge_script" \
+    >/tmp/glitch-x11-mouse-bridge.log 2>&1 &
+  GLITCH_X11_MOUSE_BRIDGE_PID="$!"
+
+  sleep 0.2
+  if ! kill -0 "$GLITCH_X11_MOUSE_BRIDGE_PID" 2>/dev/null; then
+    log "Mouse: X11 bridge failed to start."
+    cat /tmp/glitch-x11-mouse-bridge.log 2>/dev/null || true
+    return 0
+  fi
+
+  log "Mouse: X11 relative bridge listening on :${GLITCH_X11_MOUSE_BRIDGE_PORT:-6090}"
+}
+
 
 
 # GLITCH_CONTAINER_AUDIO_PROXY_HELPERS_V1:
@@ -755,6 +895,7 @@ start_glitch_container_public_proxy() {
   local public_port="${GLITCH_PUBLIC_PORT:-6080}"
   local novnc_port="${GLITCH_NOVNC_INTERNAL_PORT:-6082}"
   local audio_port="${GLITCH_AUDIO_PORT:-6081}"
+  local x11_mouse_port="${GLITCH_X11_MOUSE_BRIDGE_PORT:-6090}"
 
   if ! command -v nginx >/dev/null 2>&1; then
     log "Container proxy: nginx missing; cannot expose audio on same public port."
@@ -799,6 +940,31 @@ http {
             proxy_set_header Host \$host;
             proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        }
+
+        location = /glitch-x11-mouse-ws {
+            proxy_pass http://127.0.0.1:${x11_mouse_port};
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$host;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+            proxy_buffering off;
+        }
+
+        location = /glitch-x11-mouse-delta {
+            proxy_pass http://127.0.0.1:${x11_mouse_port};
+            proxy_http_version 1.1;
+            proxy_set_header Host \$host;
+            proxy_buffering off;
+        }
+
+        location = /glitch-cursor-state {
+            proxy_pass http://127.0.0.1:${x11_mouse_port};
+            proxy_http_version 1.1;
+            proxy_set_header Host \$host;
+            proxy_buffering off;
         }
 
         location /glitch-audio {
@@ -1125,6 +1291,38 @@ else:
 
 path.write_text(text)
 GLITCH_AUDIO_INJECT_PY
+}
+
+inject_glitch_pointer_lock_into_novnc() {
+  if [ "${GLITCH_NOVNC_POINTER_LOCK:-1}" != "1" ]; then
+    log "Mouse: noVNC pointer lock patch disabled by GLITCH_NOVNC_POINTER_LOCK=${GLITCH_NOVNC_POINTER_LOCK:-}"
+    return 0
+  fi
+
+  local html
+  html="$(find_novnc_html_for_audio_patch || true)"
+
+  if [ -z "$html" ] || [ ! -f "$html" ]; then
+    log "Mouse: noVNC HTML file not found; pointer lock patch will not be injected."
+    return 0
+  fi
+
+  if grep -q "GLITCH_NOVNC_POINTER_LOCK_MOUSE_V1" "$html"; then
+    log "Mouse: noVNC pointer lock patch already injected into $html"
+    return 0
+  fi
+
+  local injector="${GLITCH_NOVNC_POINTER_LOCK_INJECTOR:-/usr/local/share/veloren-glitch/inject_novnc_pointer_lock.py}"
+  local script="${GLITCH_NOVNC_POINTER_LOCK_SCRIPT:-/usr/local/share/veloren-glitch/novnc_pointer_lock_mouse.js}"
+  local target="${GLITCH_NOVNC_POINTER_LOCK_TARGET:-glitch-novnc-pointer-lock-mouse.js}"
+
+  if [ ! -f "$injector" ] || [ ! -f "$script" ]; then
+    log "Mouse: pointer lock assets missing; injector=$injector script=$script"
+    return 0
+  fi
+
+  log "Mouse: injecting noVNC pointer lock patch into $html"
+  python3 "$injector" "$html" "$script" "$target"
 }
 
 start_glitch_audio_stack() {
@@ -1475,7 +1673,9 @@ WEBSOCKIFY_PID=$!
 wait_for_http "http://127.0.0.1:${WEB_PORT}/vnc.html" "$STREAM_READY_TIMEOUT"
 check_process_alive "$WEBSOCKIFY_PID" "websockify"
 log "Stream endpoint is up: ${BROWSER_URL_PATH}"
+start_glitch_x11_mouse_bridge || true
 start_glitch_container_public_proxy || true
+inject_glitch_pointer_lock_into_novnc || true
 start_glitch_audio_stack || true
 show_glitch_loading_splash "Glitch is preparing Veloren...\nWaiting for your Glitch play session."
 
@@ -1489,6 +1689,7 @@ show_glitch_loading_splash "Starting Veloren...
 Restoring your Glitch cloud save."
 glitch_restore_cloud_save || true
 start_glitch_cloud_save_loop || true
+start_glitch_install_heartbeat_loop || true
 if [[ "$WEB_MODE" == "all_in_one" ]]; then
   log "Starting local Veloren dedicated server in background"
   env VELOREN_USERDATA="${SERVER_USERDATA}" /usr/local/bin/glitch-entrypoint.sh \

@@ -866,7 +866,10 @@ impl ServerChatCommand {
                 Some(Admin),
             ),
             ServerChatCommand::ReloadChunks => cmd(
-                vec![Integer("chunk_radius", 6, Optional)],
+                vec![
+                    Integer("chunk_radius", 6, Optional),
+                    Boolean("only_sites", "true".to_string(), Optional),
+                ],
                 Content::localized("command-reload_chunks-desc"),
                 Some(Admin),
             ),
@@ -1066,7 +1069,7 @@ impl ServerChatCommand {
             },
             ServerChatCommand::SetWaypoint => cmd(
                 vec![],
-                Content::localized("command-waypoint-desc"),
+                Content::localized("command-set-waypoint-desc"),
                 Some(Admin),
             ),
             ServerChatCommand::Wiring => cmd(

@@ -81,7 +81,7 @@ use crate::{
         AudioFrontend,
         channel::{SFX_DIST_LIMIT_SQR, UiChannelTag},
     },
-    scene::{Camera, Terrain},
+    scene::{Camera, FigureMgr, Terrain},
 };
 
 use client::Client;
@@ -121,7 +121,6 @@ pub enum SfxEvent {
     Frog,
     Bees,
     RunningWaterSlow,
-    RunningWaterFast,
     Lavapool,
     Idle,
     Swim,
@@ -160,6 +159,12 @@ pub enum SfxEvent {
     ArrowMiss,
     ArrowShot,
     FireShot,
+    NapalmShot,
+    NapalmImpact,
+    FireBreathShot,
+    FireBreathCharge,
+    PyroclasmCharge,
+    PyroclasmBolt,
     FlameThrower,
     PoiseChange(PoiseState),
     GroundSlam,
@@ -416,6 +421,7 @@ impl SfxMgr {
         camera: &Camera,
         terrain: &Terrain<TerrainChunk>,
         client: &Client,
+        figure_mgr: &FigureMgr,
     ) {
         // Checks if the SFX volume is set to zero or audio is disabled
         // This prevents us from running all the following code unnecessarily
@@ -463,6 +469,7 @@ impl SfxMgr {
             &triggers,
             terrain,
             client,
+            figure_mgr,
         );
     }
 
@@ -484,7 +491,7 @@ impl SfxMgr {
         match outcome {
             Outcome::Explosion { pos, power, .. } => {
                 let sfx_trigger_item = triggers.0.get_key_value(&SfxEvent::Explosion);
-                audio.emit_sfx(sfx_trigger_item, *pos, Some((power.abs() / 2.5).min(1.5)));
+                audio.emit_sfx(sfx_trigger_item, *pos, Some(power.abs()));
             },
             Outcome::Lightning { pos } => {
                 let distance = pos.distance(audio.get_listener_pos());
@@ -525,6 +532,14 @@ impl SfxMgr {
             Outcome::FlamethrowerCharge { pos, .. }
             | Outcome::TerracottaStatueCharge { pos, .. } => {
                 let sfx_trigger_item = triggers.0.get_key_value(&SfxEvent::CyclopsCharge);
+                audio.emit_sfx(sfx_trigger_item, *pos, Some(2.0));
+            },
+            Outcome::PyroclasmCharge { pos, .. } => {
+                let sfx_trigger_item = triggers.0.get_key_value(&SfxEvent::PyroclasmCharge);
+                audio.emit_sfx(sfx_trigger_item, *pos, Some(2.0));
+            },
+            Outcome::FireBreathCharge { pos, .. } => {
+                let sfx_trigger_item = triggers.0.get_key_value(&SfxEvent::FireBreathCharge);
                 audio.emit_sfx(sfx_trigger_item, *pos, Some(2.0));
             },
             Outcome::FuseCharge { pos, .. } => {
@@ -657,6 +672,15 @@ impl SfxMgr {
                         let sfx_trigger_item = triggers.0.get_key_value(&SfxEvent::FireShot);
                         audio.emit_sfx(sfx_trigger_item, *pos, None);
                     },
+                    Body::Object(object::Body::NapalmShot) => {
+                        let sfx_trigger_item = triggers.0.get_key_value(&SfxEvent::NapalmShot);
+                        audio.emit_sfx(sfx_trigger_item, *pos, None);
+                    },
+                    Body::Object(object::Body::FireRing) => {},
+                    Body::Object(object::Body::PyroclasmBolt) => {
+                        let sfx_trigger_item = triggers.0.get_key_value(&SfxEvent::PyroclasmBolt);
+                        audio.emit_sfx(sfx_trigger_item, *pos, None);
+                    },
                     Body::Object(
                         object::Body::IronPikeBomb
                         | object::Body::BubbleBomb
@@ -744,6 +768,10 @@ impl SfxMgr {
                         let sfx_trigger_item = triggers.0.get_key_value(&SfxEvent::SmashKlonk);
                         audio.emit_sfx(sfx_trigger_item, *pos, Some(2.0));
                     }
+                },
+                Body::Object(object::Body::NapalmShot) => {
+                    let sfx_trigger_item = triggers.0.get_key_value(&SfxEvent::NapalmImpact);
+                    audio.emit_sfx(sfx_trigger_item, *pos, Some(2.0));
                 },
                 _ => {},
             },
@@ -881,7 +909,13 @@ impl SfxMgr {
                     let sfx_trigger_item =
                         triggers.0.get_key_value(&SfxEvent::Utterance(*kind, voice));
                     if let Some(sfx_trigger_item) = sfx_trigger_item {
-                        audio.emit_sfx(Some(sfx_trigger_item), *pos, Some(1.5));
+                        // TODO: Dirty hack to turn down the volume of one creature. Need another
+                        // way to do this.
+                        if matches!(voice, VoiceKind::Wolf) {
+                            audio.emit_sfx(Some(sfx_trigger_item), *pos, Some(0.75));
+                        } else {
+                            audio.emit_sfx(Some(sfx_trigger_item), *pos, Some(1.5));
+                        }
                     } else {
                         debug!(
                             "No utterance sound effect exists for ({:?}, {:?})",
@@ -947,14 +981,17 @@ impl SfxMgr {
 
                 if energy > 0.0 {
                     let (sfx, volume) = if energy < 10.0 {
-                        (SfxEvent::SplashSmall, energy / 20.0)
+                        (SfxEvent::SplashSmall, (energy / 20.0).max(0.25))
                     } else if energy < 100.0 {
-                        (SfxEvent::SplashMedium, (energy - 10.0) / 90.0 + 0.5)
+                        (SfxEvent::SplashMedium, ((energy - 10.0) / 50.0 + 0.9))
                     } else {
-                        (SfxEvent::SplashBig, (energy / 100.0).sqrt() + 0.5)
+                        (
+                            SfxEvent::SplashBig,
+                            ((energy / 100.0).sqrt() + 0.5).min(2.0),
+                        )
                     };
                     let sfx_trigger_item = triggers.0.get_key_value(&sfx);
-                    audio.emit_sfx(sfx_trigger_item, *pos, Some(volume.min(2.0)));
+                    audio.emit_sfx(sfx_trigger_item, *pos, Some(volume));
                 }
             },
             Outcome::ExpChange { .. } | Outcome::ComboChange { .. } => {},

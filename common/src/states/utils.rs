@@ -210,28 +210,37 @@ impl Body {
     /// Attempt to determine the maximum speed of the character
     /// when moving on the ground
     pub fn max_speed_approx(&self) -> f32 {
-        // Inverse kinematics: at what velocity will acceleration
-        // be cancelled out by friction drag?
-        // Note: we assume no air, since it's such a small factor.
-        // Derived via...
-        // v = (v + dv / 30) * (1 - drag).powi(2) (accel cancels drag)
-        // => 1 = (1 + (dv / 30) / v) * (1 - drag).powi(2)
-        // => 1 / (1 - drag).powi(2) = 1 + (dv / 30) / v
-        // => 1 / (1 - drag).powi(2) - 1 = (dv / 30) / v
-        // => 1 / (1 / (1 - drag).powi(2) - 1) = v / (dv / 30)
-        // => (dv / 30) / (1 / (1 - drag).powi(2) - 1) = v
         let v = match self {
             Body::Ship(ship) => ship.get_speed(),
-            _ => (-self.base_accel() * 6.0 / self.mass().0) / ((1.0 - FRIC_GROUND).powi(2) - 1.0),
+            // NOTE: that denominator evaluates to constant, at the time
+            // of writing it's ~9.751134.
+            //
+            // We still have the formula here, for the sake of completeness,
+            // and also for when we'll split FRIC_GROUND to be different
+            // on the snow/ice/etc.
+            _ => -self.base_accel() / (60.0 * (1.0 - FRIC_GROUND).ln()),
         };
         debug_assert!(v >= 0.0, "Speed must be positive!");
         v
     }
 
+    /// How much orientation changes will be damped based on the severity of the
+    /// turn.
+    ///
+    /// At 1.0, low-severity turns will be damped to a lower rate: this is more
+    /// typical of the way bipedal creatures turn, for example. At 0.0, the
+    /// turn rate is constant regardless of angle.
+    pub fn ori_damping(&self) -> f32 {
+        match self {
+            Body::Humanoid(_) | Body::BipedLarge(_) | Body::Golem(_) => 1.0,
+            _ => 0.0,
+        }
+    }
+
     /// The turn rate in 180°/s (or (rotations per second)/2)
     pub fn base_ori_rate(&self) -> f32 {
         match self {
-            Body::Humanoid(_) => 3.5,
+            Body::Humanoid(body) => 2.65 / body.scaler(),
             Body::QuadrupedSmall(_) => 3.0,
             Body::QuadrupedMedium(quadruped_medium) => match quadruped_medium.species {
                 quadruped_medium::Species::Mammoth => 1.0,
@@ -303,7 +312,7 @@ impl Body {
                 Body::Dragon(_) => 50.0 * self.mass().0,
                 // Humanoids are a bit different: we try to give them thrusts that result in similar
                 // speeds for gameplay reasons
-                Body::Humanoid(_) => 4_000_000.0 / self.mass().0,
+                Body::Humanoid(_) => 1_500_000.0 / self.mass().0,
                 Body::Theropod(body) => match body.species {
                     theropod::Species::Sandraptor
                     | theropod::Species::Snowraptor
@@ -743,7 +752,8 @@ pub fn handle_orientation(
         let target_fraction = {
             // Angle factor used to keep turning rate approximately constant by
             // counteracting slerp turning more with a larger angle
-            let angle_factor = 2.0 / (1.0 - update.ori.dot(target_ori)).sqrt();
+            let angle_factor =
+                2.0 / (1.0 - update.ori.dot(target_ori) * (1.0 - data.body.ori_damping())).sqrt();
 
             half_turns_per_tick * angle_factor
         };
