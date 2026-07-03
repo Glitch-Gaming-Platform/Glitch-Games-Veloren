@@ -19,6 +19,15 @@ import UI from './app/ui.js';
   let x11MouseSocketReady = false;
   let x11MouseReconnectAt = 0;
 
+  // Cursor mode, driven by the game's real grab state (published by Voxygen and
+  // served at /glitch-cursor-state). "free" => menus/UIs: hand the mouse to the
+  // normal noVNC handlers so the cursor is visible and clickable. "grabbed" =>
+  // in-world: capture the pointer for relative camera look. Default free so the
+  // main menu and character select work before the game ever grabs.
+  let cursorGrabbed = false;
+  const cursorStateUrl = (window.__glitchCursorStateUrlV1 || '/glitch-cursor-state');
+  const cursorStatePollMs = 200;
+
   function log() {
     try {
       console.log.apply(console, ['[glitch-mouse]'].concat(Array.from(arguments)));
@@ -146,6 +155,55 @@ import UI from './app/ui.js';
     } catch (e) {}
   }
 
+  function applyCursorMode() {
+    const canvas = activeCanvas || (activeRfb && activeRfb._canvas);
+    if (!canvas) return;
+    if (cursorGrabbed) {
+      // In-world: hide the local cursor; pointer lock provides camera look.
+      canvas.style.cursor = 'none';
+      canvas.title = 'Mouse captured for camera. Press Esc to free it.';
+    } else {
+      // Menus/UIs: restore a normal, visible cursor so things are clickable.
+      canvas.style.cursor = 'default';
+      canvas.title = '';
+      if (isLocked(canvas)) {
+        try { document.exitPointerLock(); } catch (e) {}
+      }
+    }
+  }
+
+  function setCursorGrabbed(grabbed) {
+    if (grabbed === cursorGrabbed) return;
+    cursorGrabbed = grabbed;
+    log('cursor mode ->', grabbed ? 'grabbed (camera)' : 'free (menu)');
+    applyCursorMode();
+    if (grabbed) {
+      // Try to capture immediately; entering the world is usually triggered by
+      // a click, so a user gesture is typically still valid. If the browser
+      // rejects it, the next in-world click will capture instead.
+      requestLock(activeCanvas || (activeRfb && activeRfb._canvas));
+    }
+    emit('glitch:novnc-cursor-mode', { grabbed: grabbed });
+  }
+
+  function pollCursorState() {
+    fetch(cursorStateUrl, { cache: 'no-store' })
+      .then(function (resp) { return resp.ok ? resp.json() : null; })
+      .then(function (data) {
+        if (data && typeof data.state === 'string') {
+          setCursorGrabbed(data.state.toLowerCase() === 'grabbed');
+        }
+      })
+      .catch(function () { /* keep last known state on transient errors */ });
+  }
+
+  let cursorStatePollTimer = null;
+  function startCursorStatePolling() {
+    if (cursorStatePollTimer) return;
+    pollCursorState();
+    cursorStatePollTimer = window.setInterval(pollCursorState, cursorStatePollMs);
+  }
+
   function sendRelativeMouse(dxRaw, dyRaw, maskOverride) {
     const rfb = activeRfb;
     const canvas = activeCanvas || (rfb && rfb._canvas);
@@ -155,10 +213,21 @@ import UI from './app/ui.js';
     const dy = clamp((Number(dyRaw) || 0) * settings.yScale, settings.maxDelta);
     if (dx === 0 && dy === 0) return false;
 
+    // Camera look is driven by native relative motion injected through the X11
+    // bridge (XTestFakeRelativeMotionEvent -> winit DeviceEvent::MouseMotion).
+    // Send the movement there and NOWHERE else. Previously we also forwarded the
+    // same delta as an absolute noVNC position (rfb._sendMouse below), which made
+    // the game count every move two or three times and let recenter/warp events
+    // register as real motion -- that is what made the mouse hypersensitive and
+    // pinned the camera looking straight up ("stuck overhead").
+    if (sendX11RelativeMouse(dx, dy)) return true;
+
+    // Fallback only while the X11 bridge websocket is not connected yet (warm-up
+    // or reconnect): send a single absolute noVNC move so the player still has
+    // some camera control. Never both paths for the same movement.
     const center = canvasCenter(canvas);
     const mask = Number.isFinite(Number(maskOverride)) ? Number(maskOverride) : (rfb._mouseButtonMask || 0);
     rfb._sendMouse(center.x + dx, center.y + dy, mask);
-    sendX11RelativeMouse(dx, dy);
     return true;
   }
 
@@ -258,6 +327,18 @@ import UI from './app/ui.js';
     }
 
     function handleMouse(ev) {
+      // Menu / UI mode: the game is not grabbing the cursor, so let noVNC's own
+      // absolute-mouse handling run. This keeps a visible, clickable cursor on
+      // the main menu, character select, inventory, escape menu, etc.
+      if (!cursorGrabbed) {
+        if (isLocked(canvas)) {
+          // Safety: never stay pointer-locked while in a menu.
+          try { document.exitPointerLock(); } catch (e) {}
+        }
+        originalHandler(ev);
+        return;
+      }
+
       if (ev.type === 'mousedown') {
         requestLock(canvas);
         if (!isLocked(canvas)) {
@@ -301,8 +382,10 @@ import UI from './app/ui.js';
       canvas.addEventListener(eventName, handleMouse);
     });
 
-    canvas.style.cursor = 'crosshair';
-    canvas.title = 'Click to capture mouse';
+    // Start in menu/free mode: show a normal cursor so the first screens are
+    // clickable. applyCursorMode() flips this once the game grabs the cursor.
+    applyCursorMode();
+    startCursorStatePolling();
 
     document.addEventListener('pointerlockchange', function () {
       if (isLocked(canvas)) {

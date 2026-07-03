@@ -14,6 +14,19 @@ DISPLAY_NAME = os.environ.get("DISPLAY", ":99").encode()
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("GLITCH_X11_MOUSE_BRIDGE_PORT", "6090"))
 MAX_DELTA = float(os.environ.get("GLITCH_X11_MOUSE_MAX_DELTA", "80"))
+# File where Voxygen publishes whether the game currently grabs the cursor.
+# "grabbed" => in-world camera look (browser should capture the pointer),
+# "free"/absent => menus/UIs (browser should show a normal clickable cursor).
+CURSOR_STATE_FILE = os.environ.get("GLITCH_CURSOR_STATE_FILE", "/tmp/glitch-cursor-state")
+
+
+def read_cursor_state():
+    try:
+        with open(CURSOR_STATE_FILE, "r", encoding="utf-8", errors="ignore") as fh:
+            return "grabbed" if fh.read().strip().lower() == "grabbed" else "free"
+    except Exception:
+        # No file yet => menus are safe to click; default to free.
+        return "free"
 
 x11 = ctypes.CDLL("libX11.so.6")
 xtst = ctypes.CDLL("libXtst.so.6")
@@ -125,6 +138,22 @@ async def handle_client(reader, writer):
         )
         await writer.drain()
         await handle_ws(reader, writer)
+        writer.close()
+        return
+
+    if parsed.path == "/glitch-cursor-state":
+        body = json.dumps({"state": read_cursor_state()}).encode()
+        writer.write(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Cache-Control: no-store\r\n"
+            b"Access-Control-Allow-Origin: *\r\n"
+            b"Content-Length: "
+            + str(len(body)).encode()
+            + b"\r\n\r\n"
+            + body
+        )
+        await writer.drain()
         writer.close()
         return
 

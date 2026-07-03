@@ -197,6 +197,9 @@ zip -rq "$zip_path" . \
   -x "**/.DS_Store" \
   -x "*.bak*" \
   -x "**/*.bak*" \
+  -x "**/__pycache__/*" \
+  -x "*.pyc" \
+  -x "**/*.pyc" \
   -x "*.zip" \
   -x ".env" \
   -x ".env.*" \

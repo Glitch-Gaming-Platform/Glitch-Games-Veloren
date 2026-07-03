@@ -226,6 +226,19 @@ fn glitch_env_f64(name: &str, default: f64) -> f64 {
         .unwrap_or(default)
 }
 
+/// Publish the cursor grab state so the browser-side noVNC mouse layer knows
+/// whether to capture the pointer for camera look (in-world) or release it so
+/// menus, character select, and other UIs stay clickable with a visible cursor.
+/// Mirrors `set_cursor_visible(!grab)`: grabbed => "grabbed", free => "free".
+#[cfg(feature = "glitch-web")]
+fn glitch_write_cursor_state(grabbed: bool) {
+    let path = std::env::var("GLITCH_CURSOR_STATE_FILE")
+        .unwrap_or_else(|_| "/tmp/glitch-cursor-state".to_string());
+    let state = if grabbed { "grabbed" } else { "free" };
+    // Best-effort: never let telemetry break input handling.
+    let _ = std::fs::write(&path, state);
+}
+
 pub struct Window {
     renderer: Renderer,
     window: Arc<winit::window::Window>,
@@ -379,6 +392,11 @@ impl Window {
         };
 
         this.set_fullscreen_mode(settings.graphics.fullscreen);
+
+        // Start in the free/menu state so the main menu and character select are
+        // immediately clickable in the browser stream before any grab happens.
+        #[cfg(feature = "glitch-web")]
+        glitch_write_cursor_state(false);
 
         Ok((this, event_loop))
     }
@@ -997,6 +1015,9 @@ impl Window {
     pub fn grab_cursor(&mut self, grab: bool) {
         use winit::window::CursorGrabMode;
 
+        // grab_cursor is called every frame by the HUD, so only react to real
+        // transitions to avoid spamming the cursor-state file each frame.
+        let grab_changed = self.cursor_grabbed != grab;
         self.cursor_grabbed = grab;
         #[cfg(feature = "glitch-web")]
         {
@@ -1004,7 +1025,12 @@ impl Window {
             if grab {
                 self.cursor_position = self.window_center_position();
             }
+            if grab_changed {
+                glitch_write_cursor_state(grab);
+            }
         }
+        #[cfg(not(feature = "glitch-web"))]
+        let _ = grab_changed;
         self.window.set_cursor_visible(!grab);
         let res = if grab {
             self.window

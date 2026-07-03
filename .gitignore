@@ -1,6 +1,8 @@
 # Project-specific
 ## Veloren
 *.log
+__pycache__/
+*.pyc
 *.rar
 assets/tweak/
 maps

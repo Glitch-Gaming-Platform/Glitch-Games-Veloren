@@ -402,12 +402,20 @@ impl LoginProvider {
             alias = fallback_install_id.to_string();
         }
 
+        // Never emit an alias longer than the client accepts. A raw install_id
+        // fallback is 36 chars and would otherwise trip the client's TooLong
+        // check on login. pop() removes whole chars, so this stays on UTF-8
+        // boundaries while matching the validator's byte-length limit.
         while alias.len() > MAX_ALIAS_LEN {
             alias.pop();
         }
 
-        if alias.is_empty() {
-            fallback_install_id.to_string()
+        if alias.trim_matches('_').is_empty() {
+            let mut fallback = fallback_install_id.to_string();
+            while fallback.len() > MAX_ALIAS_LEN {
+                fallback.pop();
+            }
+            fallback
         } else {
             alias
         }

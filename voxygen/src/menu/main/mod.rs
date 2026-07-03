@@ -159,6 +159,8 @@ impl PlayState for MainMenuState {
                         &global_state.i18n,
                         &global_state.config_dir,
                         global_state.args.client_type.0,
+                        // Glitch install_id is the auth identity, not a display alias.
+                        true,
                     );
                 }
             }
@@ -190,6 +192,7 @@ impl PlayState for MainMenuState {
                             &global_state.i18n,
                             &global_state.config_dir,
                             global_state.args.client_type.0,
+                            false,
                         );
                     },
                     Ok(Err(e)) => {
@@ -511,6 +514,7 @@ impl PlayState for MainMenuState {
                         &global_state.i18n,
                         &global_state.config_dir,
                         global_state.args.client_type.0,
+                        false,
                     );
                 },
                 MainMenuEvent::CancelLoginAttempt => {
@@ -780,9 +784,14 @@ fn attempt_login(
     localized_strings: &LocalizationHandle,
     config_dir: &Path,
     client_type: ClientType,
+    // In Glitch web-stream mode the "username" is actually the Glitch install_id
+    // (a UUID longer than MAX_ALIAS_LEN) used as an auth identity. The visible
+    // Veloren alias is assigned by the server from the Glitch account, so the
+    // local alias-length/charset check must be skipped for that path.
+    skip_alias_validation: bool,
 ) {
     let localization = localized_strings.read();
-    if let Err(err) = comp::Player::alias_validate(&username) {
+    if !skip_alias_validation && let Err(err) = comp::Player::alias_validate(&username) {
         match err {
             comp::AliasError::ForbiddenCharacters => {
                 *info_message = Some(
